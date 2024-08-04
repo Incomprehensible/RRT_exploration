@@ -36,17 +36,29 @@ def generate_launch_description():
         }.items()
     )
     
-    # ld = LaunchDescription([
-    #     SetEnvironmentVariable(name='TURTLEBOT3_MODEL', value='waffle'),
-    #     IncludeLaunchDescription(
-    #             PythonLaunchDescriptionSource([
-    #                 FindPackageShare("turtlebot3_gazebo"), '/launch', '/empty_world.launch.py'])
-    #         )])
-    rrt_exploration_node = Node(
+    # rrt_exploration_node = Node(
+    #     package="single_agent_rrt",
+    #     executable="rrt_exploration",
+    #     name='rrt_exploration',
+    #     respawn=True,
+    # )
+    local_frontier_detector_node = Node(
         package="single_agent_rrt",
-        executable="rrt_exploration",
-        name='rrt_exploration',
-        respawn=True,
+        executable="local_frontier_detector",
+        name='local_frontier_detector',
+        # respawn=True,
+    )
+    global_frontier_detector_node = Node(
+        package="single_agent_rrt",
+        executable="global_frontier_detector",
+        name='global_frontier_detector',
+        # respawn=True,
+    )
+    filter_node = Node(
+        package="single_agent_rrt",
+        executable="filter",
+        name='filter',
+        # respawn=True,
     )
     
     return LaunchDescription([
@@ -57,8 +69,7 @@ def generate_launch_description():
         declare_slam,
         declare_rviz_config_file,
         tb3_simulation_launch,
-        rrt_exploration_node,
+        # rrt_exploration_node,
+        # local_frontier_detector_node,
+        # filter_node
     ])
-
-    # ld.add_action(rrt_exploration_node)
-    # return ld

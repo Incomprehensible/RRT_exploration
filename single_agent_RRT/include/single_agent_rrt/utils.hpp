@@ -20,6 +20,11 @@ namespace utils {
         return sqrt(pow(p1.x - p2.x, 2) + pow(p1.y - p2.y, 2));
     }
 
+    inline bool comparable(double a, double b, double epsilon)
+    {
+        return std::fabs(a - b) <= epsilon;//DBL_EPSILON;
+    }
+
     inline bool comparable(double a, double b)
     {
         return std::fabs(a - b) <= DBL_EPSILON;

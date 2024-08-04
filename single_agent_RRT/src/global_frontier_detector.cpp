@@ -2,12 +2,12 @@
 #include <sstream>
 #include <random>
 
-#include "single_agent_rrt/local_frontier_detector.hpp"
+#include "single_agent_rrt/global_frontier_detector.hpp"
 #include "single_agent_rrt/utils.hpp"
 
 // we don't have a trim_RRT() method here because it resets itself at each detection step
 
-LocalFrontierDetector::LocalFrontierDetector(const rclcpp::NodeOptions &options, const std::string& name)
+GlobalFrontierDetector::GlobalFrontierDetector(const rclcpp::NodeOptions &options, const std::string& name)
     : Node(name, options),
     RRT_(2 /*dim*/, this->pcloud_, {MAX_LEAF /* max leaf */}), RRT_viz_(this),
     tf_buffer_(), tf_listener_(tf_buffer_)
@@ -17,17 +17,16 @@ LocalFrontierDetector::LocalFrontierDetector(const rclcpp::NodeOptions &options,
     this->pcloud_.pts.resize(POINT_CLOUD_SIZE); 
 
     this->valid_map_ = false;
-    this->reset_RRT_ = true;
     this->pcloud_index_ = 0;
 
     this->detector_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(100),
-        std::bind(&LocalFrontierDetector::detect_frontiers, this));
+        std::chrono::milliseconds(300),
+        std::bind(&GlobalFrontierDetector::detect_frontiers, this));
     this->detector_timer_->cancel();
     
-    this->frontier_pub_ = this->create_publisher<geometry_msgs::msg::Point>("/local_frontier_detector", 100);
+    this->frontier_pub_ = this->create_publisher<geometry_msgs::msg::Point>("/global_frontier_detector", 200);
     this->map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-        "map", 10, std::bind(&LocalFrontierDetector::map_callback, this, std::placeholders::_1));
+        "map", 10, std::bind(&GlobalFrontierDetector::map_callback, this, std::placeholders::_1));
 
     // TODO: move to robot task allocator
     // Nav2 navigation action
@@ -35,29 +34,23 @@ LocalFrontierDetector::LocalFrontierDetector(const rclcpp::NodeOptions &options,
     // this->marker_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/rrt", 10);
 }
 
-void LocalFrontierDetector::map_callback(const nav_msgs::msg::OccupancyGrid & map)
+void GlobalFrontierDetector::map_callback(const nav_msgs::msg::OccupancyGrid & map)
 {
     this->map_ = std::make_shared<nav_msgs::msg::OccupancyGrid>(map);
-    this->reset_RRT_ = true;
 
     if (!this->valid_map_)
     {
         this->valid_map_ = true;
+        RRT_init();
         // RCLCPP_INFO(this->get_logger(), "NAD: Got valid map!");
         this->detector_timer_->reset();
     }
 }
 
 // initializes RRT with current robot's pose p_init
-bool LocalFrontierDetector::RRT_reset()
+bool GlobalFrontierDetector::RRT_init()
 {
-    // RCLCPP_INFO(this->get_logger(), "NAD: resetting RRT!");
-    // TODO: do I need to clear the tree?
-    if (this->pcloud_index_ != 0) {
-        for (size_t i = 0; i <= this->pcloud_index_; ++i)
-            this->RRT_.removePoint(i);
-    }
-    this->pcloud_index_ = 0;
+    RCLCPP_INFO(this->get_logger(), "NAD: init RRT!");
     // needed for RRT initialization at each detection step
     geometry_msgs::msg::TransformStamped::SharedPtr robot2map_tf = utils::get_robot_position(&tf_buffer_);
     if (robot2map_tf == nullptr)
@@ -77,18 +70,18 @@ bool LocalFrontierDetector::RRT_reset()
 
     RRT_.addPoints(0, 0);
 
-    // visualization reset
-    this->RRT_viz_.clear_tree();
-
     return true;
 }
 
-void LocalFrontierDetector::RRT_add_point(const geometry_msgs::msg::Point& p)
+void GlobalFrontierDetector::RRT_add_point(const geometry_msgs::msg::Point& p)
 {
     this->pcloud_index_++;
 
-    if (this->pcloud_.pts.size() == this->pcloud_index_)
+    // RCLCPP_INFO(this->get_logger(), "NAD: pcloud SIZE:%ld", this->pcloud_.pts.size());
+    if (this->pcloud_.pts.size() == this->pcloud_index_) {
+        RCLCPP_INFO(this->get_logger(), "NAD: RESIZING pcloud to :%ld", this->pcloud_.pts.size()*2);
         this->pcloud_.pts.resize(this->pcloud_.pts.size()*2);
+    }
     
     this->pcloud_.pts[this->pcloud_index_].x = p.x;
     this->pcloud_.pts[this->pcloud_index_].y = p.y;
@@ -98,7 +91,7 @@ void LocalFrontierDetector::RRT_add_point(const geometry_msgs::msg::Point& p)
     RRT_.addPoints(this->pcloud_index_, this->pcloud_index_);
 }
 
-geometry_msgs::msg::Point LocalFrontierDetector::RRT_find_nearest_neighbor(const geometry_msgs::msg::Point& p_rand)
+geometry_msgs::msg::Point GlobalFrontierDetector::RRT_find_nearest_neighbor(const geometry_msgs::msg::Point& p_rand)
 {
     // do a knn search
     const size_t num_results = 1;
@@ -122,25 +115,12 @@ geometry_msgs::msg::Point LocalFrontierDetector::RRT_find_nearest_neighbor(const
     return p_nearest;
 }
 
-inline bool LocalFrontierDetector::within_expansion_dist(const geometry_msgs::msg::Point& p1, const geometry_msgs::msg::Point& p2)
+inline bool GlobalFrontierDetector::within_expansion_dist(const geometry_msgs::msg::Point& p1, const geometry_msgs::msg::Point& p2)
 {
     return (utils::euclidian_dist(p1, p2)) <= RRT_EXPANSION_RATE;
 }
 
-// LocalFrontierDetector::MAP_STATUS LocalFrontierDetector::grid_check(const geometry_msgs::msg::Point& p)
-// {
-//     size_t i = std::min<size_t>(this->map_->info.width-1, std::max<double>(0, (p.x - this->map_->info.origin.position.x)) / this->map_->info.resolution);
-//     size_t j = std::min<size_t>(this->map_->info.height-1, std::max<double>(0, (p.y - this->map_->info.origin.position.y)) / this->map_->info.resolution);
-
-//     size_t index = j*this->map_->info.width + i;
-//     // RCLCPP_INFO(this->get_logger(), "NAD: grid status at p_cand: %d", this->map_->data[j*this->map_->info.width + i]);
-
-//     assert((this->map_->data[index] == -1) || (this->map_->data[index] == 0) || (this->map_->data[index] == 100));
-
-//     return static_cast<MAP_STATUS>(this->map_->data[index]);
-// }
-
-LocalFrontierDetector::MAP_STATUS LocalFrontierDetector::grid_check(const geometry_msgs::msg::Point& p)
+GlobalFrontierDetector::MAP_STATUS GlobalFrontierDetector::grid_check(const geometry_msgs::msg::Point& p)
 {
     size_t i = std::max<double>(0, (p.x - this->map_->info.origin.position.x)) / this->map_->info.resolution;
     size_t j = std::max<double>(0, (p.y - this->map_->info.origin.position.y)) / this->map_->info.resolution;
@@ -161,8 +141,8 @@ LocalFrontierDetector::MAP_STATUS LocalFrontierDetector::grid_check(const geomet
 // a point z, where ‖z − y‖ is minimized, while ‖z − x‖ ≤ η,
 // for an η > 0, η is the tree growth rate. Large value of η
 // corresponds to a faster tree growth (i.e tree expands faster).
-std::pair<geometry_msgs::msg::Point::SharedPtr, LocalFrontierDetector::MAP_STATUS> 
-    LocalFrontierDetector::RRT_steer(const geometry_msgs::msg::Point& p_nearest, const geometry_msgs::msg::Point& p_rand)
+std::pair<geometry_msgs::msg::Point::SharedPtr, GlobalFrontierDetector::MAP_STATUS> 
+    GlobalFrontierDetector::RRT_steer(const geometry_msgs::msg::Point& p_nearest, const geometry_msgs::msg::Point& p_rand)
 {
     // for simplicity choose randomly sample point if it's already close enough
     // we know p_rand was sampled from free space
@@ -185,10 +165,10 @@ std::pair<geometry_msgs::msg::Point::SharedPtr, LocalFrontierDetector::MAP_STATU
     // while (!utils::comparable(lambda, 1, step) && within_expansion_dist(p_nearest, p_cand))
     while (lambda < 1 && within_expansion_dist(p_nearest, p_cand))
     {
-        if ((p_new_status = grid_check(p_cand)) == MAP_STATUS::OBSTACLE)
-            return std::make_pair(nullptr, p_new_status);;
         // if ((p_new_status = grid_check(p_cand)) == MAP_STATUS::OBSTACLE)
-        //     break;
+        //     return std::make_pair(nullptr, p_new_status);
+        if ((p_new_status = grid_check(p_cand)) == MAP_STATUS::OBSTACLE)
+            break;
         
         lambda += step;
         p_new.first = std::make_shared<geometry_msgs::msg::Point>(p_cand);
@@ -205,15 +185,8 @@ std::pair<geometry_msgs::msg::Point::SharedPtr, LocalFrontierDetector::MAP_STATU
 // searches for frontier points and builds local RRT tree
 // keeps a memory buffer of explored frontier points (centroids of frontier clusters which map to one frontier point found)
 // discards a found frontier point if it is contained in a buffer (hash table)
-void LocalFrontierDetector::detect_frontiers()
+void GlobalFrontierDetector::detect_frontiers()
 {
-    if (this->reset_RRT_) {
-        if (RRT_reset())
-            this->reset_RRT_ = false;
-        else
-            return;
-    }
-
     // auto seed = std::chrono::steady_clock::now().time_since_epoch().count();
     std::random_device seed; // obtain a random number from hardware
 
@@ -234,12 +207,11 @@ void LocalFrontierDetector::detect_frontiers()
     geometry_msgs::msg::Point p_rand;
     geometry_msgs::msg::Point p_nearest;
     geometry_msgs::msg::Point p_new;
-    while (!this->reset_RRT_)
+    while (rclcpp::ok())
     {
         i = gen_row();
         j = gen_col();
 
-        // RCLCPP_INFO(this->get_logger(), "NAD: map value: i:%d, j:%d, val: %d", i, j, this->map_->data[j*this->map_->info.width + i]);
         // sample point p from free space
         if (this->map_->data[j*this->map_->info.width + i] == MAP_STATUS::FREE)
         {
@@ -261,8 +233,6 @@ void LocalFrontierDetector::detect_frontiers()
 
             if (p_new_status == MAP_STATUS::UNKNOWN) { //&& !RRT_is_outdated_frontier(p_new)) {
                 publish_frontier(p_new);
-                this->reset_RRT_ = true;
-                break;
             }
             else // FREE SPACE 
                 RRT_add_point(p_new);
@@ -272,7 +242,7 @@ void LocalFrontierDetector::detect_frontiers()
     }
 }
 
-void LocalFrontierDetector::publish_frontier(const geometry_msgs::msg::Point& frontier)
+void GlobalFrontierDetector::publish_frontier(const geometry_msgs::msg::Point& frontier)
 {
     // RCLCPP_INFO(this->get_logger(), "NAD: PUBLISH FRONTIER!");
     this->frontier_pub_->publish(frontier);
@@ -299,7 +269,7 @@ void LocalFrontierDetector::publish_frontier(const geometry_msgs::msg::Point& fr
 }
 
 // TODO: move to robot task allocator
-// void LocalFrontierDetector::goal_response_callback(const GoalHandleNavigate::WrappedResult &result)
+// void GlobalFrontierDetector::goal_response_callback(const GoalHandleNavigate::WrappedResult &result)
 // {
 //     if (result.code == rclcpp_action::ResultCode::SUCCEEDED) {
 //         RCLCPP_INFO(this->get_logger(), "Goal reached.");
@@ -311,12 +281,12 @@ void LocalFrontierDetector::publish_frontier(const geometry_msgs::msg::Point& fr
 //     this->detector_timer_->reset();
 // }
 
-// RCLCPP_COMPONENTS_REGISTER_NODE(LocalFrontierDetector)
+// RCLCPP_COMPONENTS_REGISTER_NODE(GlobalFrontierDetector)
 
 int main(int argc, char** argv)
 {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<LocalFrontierDetector>();
+    auto node = std::make_shared<GlobalFrontierDetector>();
     rclcpp::spin(node);
 
     rclcpp::shutdown();
