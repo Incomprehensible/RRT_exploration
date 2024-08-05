@@ -75,12 +75,27 @@ class GlobalFrontierDetector: public rclcpp::Node
                 }
                 this->marker_.id = 0;
             }
+
+            void clear_tree()
+            {
+                visualization_msgs::msg::Marker marker;
+                marker.action = visualization_msgs::msg::Marker::DELETE;
+                for (int id = 0; id <= this->marker_.id; id++)
+                {
+                    marker.id = id;
+                    marker_pub_->publish(marker);
+                }
+                this->marker_.id = 0;
+                this->marker_.color.r = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+                this->marker_.color.g = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+                this->marker_.color.b = static_cast <float> (rand()) / static_cast <float> (RAND_MAX);
+            }
         
         private:
             void init_marker(visualization_msgs::msg::Marker &marker) {
                 marker.header.frame_id = "map";  // Set the frame id to match your setup
                 marker.header.stamp = rrt_node->now();
-                marker.ns = "rrt_tree";
+                marker.ns = "rrt_global_tree";
                 marker.id = 0;
                 marker.action = visualization_msgs::msg::Marker::ADD;
                 marker.pose.orientation.w = 1.0;
@@ -122,7 +137,8 @@ class GlobalFrontierDetector: public rclcpp::Node
         // void goal_response_callback(const GoalHandleNavigate::WrappedResult&);
 
         // RRT methods
-        bool RRT_init();
+        // bool RRT_init();
+        bool RRT_reset();
         void RRT_add_point(const geometry_msgs::msg::Point&);
         // void RRT_visualize_edge(const geometry_msgs::msg::Point&, const geometry_msgs::msg::Point&)
         // void RRT_visualize();
@@ -152,6 +168,7 @@ class GlobalFrontierDetector: public rclcpp::Node
 
         // flags
         bool valid_map_;
+        volatile bool reset_RRT_;
 
         // coordinates transform
         tf2::BufferCore tf_buffer_;
@@ -161,6 +178,9 @@ class GlobalFrontierDetector: public rclcpp::Node
         rclcpp::TimerBase::SharedPtr detector_timer_;
         rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr frontier_pub_;
         rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
+        // tmp
+        rclcpp::CallbackGroup::SharedPtr client_cb_group_;
+        rclcpp::CallbackGroup::SharedPtr timer_cb_group_;
         // TODO?
         // rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr explored_frontier_sub_;
         // rclcpp_action::Client<NavigateToPose>::SharedPtr nav2_client_;

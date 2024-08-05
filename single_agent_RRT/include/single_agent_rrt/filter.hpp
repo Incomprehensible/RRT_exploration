@@ -123,6 +123,7 @@ class Filter : public rclcpp::Node
         rclcpp::TimerBase::SharedPtr frontier_pub_timer_;
         rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr local_frontier_sub_;
         rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr global_frontier_sub_;
+        rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr map_sub_;
         // Frontier point Publisher
         rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr frontier_pub_;
         rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_array_publisher_;

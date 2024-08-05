@@ -50,7 +50,7 @@ class LocalFrontierDetector: public rclcpp::Node
                 this->marker_pub_ = rrt_node->create_publisher<visualization_msgs::msg::Marker>("/rrt_local_tree", 20);
                 // marker_pub_ = rrt_node->create_publisher<visualization_msgs::msg::MarkerArray>("/rrt_tree", 10);
                 // marker_array_.markers.resize(1);
-                initializeMarker(this->marker_);
+                init_marker(this->marker_);
                 // initializeMarker(marker_array_.markers[0]);
             }
 
@@ -76,14 +76,7 @@ class LocalFrontierDetector: public rclcpp::Node
                 marker_pub_->publish(marker_);
 
                 marker_.id++;
-                // marker_pub_->publish(marker_array_);
             }
-
-            // void add_vertex(const geometry_msgs::msg::Point &p) {
-            //     marker_.points.push_back(p);                
-            //     marker_pub_->publish(marker_);
-            //     // marker_pub_->publish(marker_array_);
-            // }
 
             void clear_tree()
             {
@@ -101,10 +94,10 @@ class LocalFrontierDetector: public rclcpp::Node
             }
         
         private:
-            void initializeMarker(visualization_msgs::msg::Marker &marker) {
+            void init_marker(visualization_msgs::msg::Marker &marker) {
                 marker.header.frame_id = "map";  // Set the frame id to match your setup
                 marker.header.stamp = rrt_node->now();
-                marker.ns = "rrt_tree";
+                marker.ns = "rrt_local_tree";
                 marker.id = 0;
                 marker.action = visualization_msgs::msg::Marker::ADD;
                 marker.pose.orientation.w = 1.0;
@@ -120,9 +113,7 @@ class LocalFrontierDetector: public rclcpp::Node
 
             rclcpp::Node* rrt_node;
             visualization_msgs::msg::Marker marker_;
-            // visualization_msgs::msg::MarkerArray marker_array_;
             rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_pub_;
-            // rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
     };
 
     enum MAP_STATUS {

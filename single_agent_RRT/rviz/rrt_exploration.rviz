@@ -538,26 +538,26 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /waypoints
       Value: true
-    # - Class: rviz_default_plugins/Marker
-    #   Enabled: true
-    #   Name: Marker
-    #   Namespaces:
-    #     rrt_tree: true
-    #   Topic:
-    #     Depth: 100
-    #     Durability Policy: Volatile
-    #     History Policy: Keep Last
-    #     Reliability Policy: Reliable
-    #     # Filter Size: 100
-    #     Value: /rrt_local_tree
-    #   Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: true
       Name: Marker
       Namespaces:
-        rrt_tree: true
+        rrt_local_tree: true
       Topic:
-        Depth: 1000
+        Depth: 10000000000
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        # Filter Size: 100
+        Value: /rrt_local_tree
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        rrt_global_tree: true
+      Topic:
+        Depth: 10000000000
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable

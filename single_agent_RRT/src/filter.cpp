@@ -22,6 +22,8 @@ Filter::Filter(const rclcpp::NodeOptions &options, const std::string& name)
     this->global_frontier_sub_ = this->create_subscription<geometry_msgs::msg::Point>(
         "/global_frontier_detector", 200, std::bind(&Filter::global_frontier_callback, this, std::placeholders::_1)) ;
     this->frontier_pub_ = this->create_publisher<geometry_msgs::msg::Point>("/frontier_detector", 10);
+    this->map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
+        "/map", 10, std::bind(&Filter::map_callback, this, std::placeholders::_1));
 
     this->marker_array_publisher_ = this->create_publisher<visualization_msgs::msg::MarkerArray>("/clusters", 100);
 
@@ -75,7 +77,7 @@ void Filter::publish_frontier()
         return;
     }
 
-    RCLCPP_INFO(this->get_logger(), "NAD: Publishing clustered frontier...");
+    // RCLCPP_INFO(this->get_logger(), "NAD: Publishing clustered frontier...");
 
     // while (!this->cluster_queue_.empty()) {
     //     auto frontier = this->cluster_queue_.pop();
@@ -102,10 +104,10 @@ void Filter::filter_frontiers()
     if (!this->tf_buffer_.canTransform("map", "odom", tf2::TimePointZero, tf2::durationFromSec(1.0)))
         return;
     
-    RCLCPP_INFO(this->get_logger(), "NAD: filtering frontiers...");
+    // RCLCPP_INFO(this->get_logger(), "NAD: filtering frontiers...");
     RCLCPP_INFO(this->get_logger(), "NAD: frontier queue size: %ld", this->frontier_queue_.size());
 
-    if (this->frontier_queue_.size() < CLUSTERING_THRESHOLD ||goal_ongoing)
+    if (/*this->frontier_queue_.size() < CLUSTERING_THRESHOLD ||*/ goal_ongoing)
         return;
     
     std::vector<geometry_msgs::msg::Point> v;
@@ -129,8 +131,8 @@ void Filter::calculate_cluster_center(FrontierCluster& cluster)
 inline double Filter::revenue_function(double N, double I)
 {
     // TODO: make parameters
-    const double h_gain = 1.1;
-    const double h_r = 1.2;
+    const double h_gain = 1.2;
+    const double h_r = 1.0;
     const double lambda = 3.0;
     // hysteresis gain
     double h = (N > h_r)? 1 : h_gain;
@@ -158,7 +160,7 @@ bool Filter::is_unexplored(const geometry_msgs::msg::Point& p)
 double Filter::calculate_info_gain(const std::vector<geometry_msgs::msg::Point>& points)
 {
     if (!this->valid_map_)
-        return points.size();
+        return 0;//points.size();
     
     size_t frontiers = 0;
     // TODO: check only within lidar range value
@@ -179,15 +181,13 @@ void Filter::calculate_cluster_cost(FrontierCluster& frontier, geometry_msgs::ms
     double nav_cost = utils::euclidian_dist(frontier.center, r);
     double info_gain = calculate_info_gain(frontier.frontiers);
 
-    // frontier.cost = revenue_function(nav_cost, info_gain);
+    frontier.cost = revenue_function(nav_cost, info_gain);
     frontier.info_gain = info_gain;
-    frontier.cost = info_gain;
+    // frontier.cost = info_gain;
 }
 
 void Filter::cluster_frontiers(std::vector<geometry_msgs::msg::Point> points)
 {
-    // this->filter_timer_->cancel();
-    // this->local_frontier_sub_.reset();
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>());
 
     // size_t n = this->frontier_queue_.size();
@@ -217,7 +217,7 @@ void Filter::cluster_frontiers(std::vector<geometry_msgs::msg::Point> points)
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZ> ec;
     // TODO: make parameters
-    ec.setClusterTolerance (0.05); // 8cm
+    ec.setClusterTolerance (0.08); // 5cm
     ec.setMinClusterSize (8);
     ec.setMaxClusterSize (20);
     ec.setSearchMethod (tree);
@@ -264,9 +264,6 @@ void Filter::cluster_frontiers(std::vector<geometry_msgs::msg::Point> points)
     RCLCPP_INFO(this->get_logger(), "NAD: cluster queue size: %ld", this->cluster_queue_.size());
     if (clusters.size() > 0)
         visualize_frontiers(clusters);
-    // this->local_frontier_sub_ = this->create_subscription<geometry_msgs::msg::Point>(
-    //     "/local_frontier_detector", 10, std::bind(&Filter::local_frontier_callback, this, std::placeholders::_1));
-    // this->filter_timer_->reset();
 }
 
 void Filter::visualize_frontiers(std::vector<FrontierCluster> frontiers)

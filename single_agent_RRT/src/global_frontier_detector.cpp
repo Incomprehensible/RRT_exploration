@@ -5,7 +5,8 @@
 #include "single_agent_rrt/global_frontier_detector.hpp"
 #include "single_agent_rrt/utils.hpp"
 
-// we don't have a trim_RRT() method here because it resets itself at each detection step
+// TODO: abstract FrontierDetector class with visualizator
+// to reduce duplicate code
 
 GlobalFrontierDetector::GlobalFrontierDetector(const rclcpp::NodeOptions &options, const std::string& name)
     : Node(name, options),
@@ -16,17 +17,27 @@ GlobalFrontierDetector::GlobalFrontierDetector(const rclcpp::NodeOptions &option
 
     this->pcloud_.pts.resize(POINT_CLOUD_SIZE); 
 
+    this->reset_RRT_ = true;
     this->valid_map_ = false;
     this->pcloud_index_ = 0;
 
+    // tmp
+    timer_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    //
     this->detector_timer_ = this->create_wall_timer(
-        std::chrono::milliseconds(300),
-        std::bind(&GlobalFrontierDetector::detect_frontiers, this));
+        std::chrono::milliseconds(500),
+        std::bind(&GlobalFrontierDetector::detect_frontiers, this), timer_cb_group_);
     this->detector_timer_->cancel();
     
     this->frontier_pub_ = this->create_publisher<geometry_msgs::msg::Point>("/global_frontier_detector", 200);
+
+    // tmp
+    client_cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    rclcpp::SubscriptionOptions sub_options;
+    sub_options.callback_group = client_cb_group_;
+    //
     this->map_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(
-        "map", 10, std::bind(&GlobalFrontierDetector::map_callback, this, std::placeholders::_1));
+        "/map", 10, std::bind(&GlobalFrontierDetector::map_callback, this, std::placeholders::_1), sub_options);
 
     // TODO: move to robot task allocator
     // Nav2 navigation action
@@ -36,21 +47,61 @@ GlobalFrontierDetector::GlobalFrontierDetector(const rclcpp::NodeOptions &option
 
 void GlobalFrontierDetector::map_callback(const nav_msgs::msg::OccupancyGrid & map)
 {
+            RCLCPP_INFO(this->get_logger(), "NAD: Got valid map!");
+
+    if (this->valid_map_)
+        RCLCPP_INFO(this->get_logger(), "NAD: OLD MAP ORIGIN: x:%f, y:%f", this->map_->info.origin.position.x, this->map_->info.origin.position.y);
     this->map_ = std::make_shared<nav_msgs::msg::OccupancyGrid>(map);
+    RCLCPP_INFO(this->get_logger(), "NAD: NEW MAP ORIGIN: x:%f, y:%f", this->map_->info.origin.position.x, this->map_->info.origin.position.y);
+
+    // this->reset_RRT_ = true;
 
     if (!this->valid_map_)
     {
         this->valid_map_ = true;
-        RRT_init();
+        // RRT_init();
         // RCLCPP_INFO(this->get_logger(), "NAD: Got valid map!");
         this->detector_timer_->reset();
     }
 }
 
 // initializes RRT with current robot's pose p_init
-bool GlobalFrontierDetector::RRT_init()
+// bool GlobalFrontierDetector::RRT_init()
+// {
+//     RCLCPP_INFO(this->get_logger(), "NAD: init RRT!");
+//     // needed for RRT initialization at each detection step
+//     geometry_msgs::msg::TransformStamped::SharedPtr robot2map_tf = utils::get_robot_position(&tf_buffer_);
+//     if (robot2map_tf == nullptr)
+//         return false;
+//     auto robot2map = *(robot2map_tf.get());
+
+//     geometry_msgs::msg::PoseStamped robot_pose = geometry_msgs::msg::PoseStamped();
+//     robot_pose.pose.position.x = robot2map.transform.translation.x;
+//     robot_pose.pose.position.y = robot2map.transform.translation.y;
+//     robot_pose.header.stamp = robot2map.header.stamp;
+        
+//     // this->pcloud_.pts.clear();
+//     this->pcloud_.pts[0].x = robot_pose.pose.position.x;
+//     this->pcloud_.pts[0].y = robot_pose.pose.position.y;
+//     // TODO: remove this line
+//     this->pcloud_.pts[0].z = robot_pose.pose.position.z;
+
+//     RRT_.addPoints(0, 0);
+
+//     return true;
+// }
+
+
+// initializes RRT with current robot's pose p_init
+bool GlobalFrontierDetector::RRT_reset()
 {
-    RCLCPP_INFO(this->get_logger(), "NAD: init RRT!");
+    // RCLCPP_INFO(this->get_logger(), "NAD: resetting RRT!");
+    // TODO: do I need to clear the tree?
+    if (this->pcloud_index_ != 0) {
+        for (size_t i = 0; i <= this->pcloud_index_; ++i)
+            this->RRT_.removePoint(i);
+    }
+    this->pcloud_index_ = 0;
     // needed for RRT initialization at each detection step
     geometry_msgs::msg::TransformStamped::SharedPtr robot2map_tf = utils::get_robot_position(&tf_buffer_);
     if (robot2map_tf == nullptr)
@@ -69,6 +120,9 @@ bool GlobalFrontierDetector::RRT_init()
     this->pcloud_.pts[0].z = robot_pose.pose.position.z;
 
     RRT_.addPoints(0, 0);
+
+    // visualization reset
+    this->RRT_viz_.clear_tree();
 
     return true;
 }
@@ -115,6 +169,7 @@ geometry_msgs::msg::Point GlobalFrontierDetector::RRT_find_nearest_neighbor(cons
     return p_nearest;
 }
 
+// TODO: move to utils
 inline bool GlobalFrontierDetector::within_expansion_dist(const geometry_msgs::msg::Point& p1, const geometry_msgs::msg::Point& p2)
 {
     return (utils::euclidian_dist(p1, p2)) <= RRT_EXPANSION_RATE;
@@ -141,43 +196,86 @@ GlobalFrontierDetector::MAP_STATUS GlobalFrontierDetector::grid_check(const geom
 // a point z, where ‖z − y‖ is minimized, while ‖z − x‖ ≤ η,
 // for an η > 0, η is the tree growth rate. Large value of η
 // corresponds to a faster tree growth (i.e tree expands faster).
+// std::pair<geometry_msgs::msg::Point::SharedPtr, GlobalFrontierDetector::MAP_STATUS> 
+//     GlobalFrontierDetector::RRT_steer(const geometry_msgs::msg::Point& p_nearest, const geometry_msgs::msg::Point& p_rand)
+// {
+//     geometry_msgs::msg::Point::SharedPtr p_new_ptr = nullptr;
+//     MAP_STATUS p_new_status = MAP_STATUS::UNDEFINED;
+//     auto p_new = std::make_pair(p_new_ptr, p_new_status);
+
+//     geometry_msgs::msg::Point p_cand;
+//     // construct a line between x and y
+//     const double step = this->map_->info.resolution;
+
+//     double lambda = step;
+//     p_cand.x = (1-lambda)*p_nearest.x + lambda*p_rand.x;
+//     p_cand.y = (1-lambda)*p_nearest.y + lambda*p_rand.y;
+
+//     while (lambda < 1 && within_expansion_dist(p_nearest, p_cand))
+//     {
+//         // if ((p_new_status = grid_check(p_cand)) == MAP_STATUS::OBSTACLE)
+//         //     return std::make_pair(nullptr, p_new_status);
+//         if ((p_new_status = grid_check(p_cand)) == MAP_STATUS::OBSTACLE)
+//             break;
+        
+//         lambda += step;
+//         p_new.first = std::make_shared<geometry_msgs::msg::Point>(p_cand);
+//         // if we had an unknown point on the line we consider new point a frontier by deafult
+//         p_new.second = (p_new.second == MAP_STATUS::UNKNOWN)? p_new.second : p_new_status;
+
+//         p_cand.x = (1-lambda)*p_nearest.x + lambda*p_rand.x;
+//         p_cand.y = (1-lambda)*p_nearest.y + lambda*p_rand.y;
+//     }
+
+//     return p_new;
+// }
+
+// chatgpt
 std::pair<geometry_msgs::msg::Point::SharedPtr, GlobalFrontierDetector::MAP_STATUS> 
-    GlobalFrontierDetector::RRT_steer(const geometry_msgs::msg::Point& p_nearest, const geometry_msgs::msg::Point& p_rand)
+GlobalFrontierDetector::RRT_steer(const geometry_msgs::msg::Point& p_nearest, const geometry_msgs::msg::Point& p_rand)
 {
-    // for simplicity choose randomly sample point if it's already close enough
-    // we know p_rand was sampled from free space
-    // if (within_expansion_dist(p_nearest, p_rand))
-    //     return std::make_pair(std::make_shared<geometry_msgs::msg::Point>(p_rand), MAP_STATUS::FREE);
-    
     geometry_msgs::msg::Point::SharedPtr p_new_ptr = nullptr;
     MAP_STATUS p_new_status = MAP_STATUS::UNDEFINED;
     auto p_new = std::make_pair(p_new_ptr, p_new_status);
 
+    // Convert the points to grid indices
+    int x0 = static_cast<int>((p_nearest.x - this->map_->info.origin.position.x) / this->map_->info.resolution);
+    int y0 = static_cast<int>((p_nearest.y - this->map_->info.origin.position.y) / this->map_->info.resolution);
+    int x1 = static_cast<int>((p_rand.x - this->map_->info.origin.position.x) / this->map_->info.resolution);
+    int y1 = static_cast<int>((p_rand.y - this->map_->info.origin.position.y) / this->map_->info.resolution);
+
+    // Bresenham's algorithm to trace the line
+    int dx = std::abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
+    int dy = -std::abs(y1 - y0), sy = y0 < y1 ? 1 : -1; 
+    int err = dx + dy, e2;
+
     geometry_msgs::msg::Point p_cand;
-    // construct a line between x and y
-    const double step = this->map_->info.resolution;
-    // RCLCPP_INFO(this->get_logger(), "NAD: step: %f", this->map_->info.resolution);
+    do {
+        p_cand.x = this->map_->info.origin.position.x + x0 * this->map_->info.resolution;
+        p_cand.y = this->map_->info.origin.position.y + y0 * this->map_->info.resolution;
 
-    double lambda = step;
-    p_cand.x = (1-lambda)*p_nearest.x + lambda*p_rand.x;
-    p_cand.y = (1-lambda)*p_nearest.y + lambda*p_rand.y;
-
-    // while (!utils::comparable(lambda, 1, step) && within_expansion_dist(p_nearest, p_cand))
-    while (lambda < 1 && within_expansion_dist(p_nearest, p_cand))
-    {
-        // if ((p_new_status = grid_check(p_cand)) == MAP_STATUS::OBSTACLE)
-        //     return std::make_pair(nullptr, p_new_status);
-        if ((p_new_status = grid_check(p_cand)) == MAP_STATUS::OBSTACLE)
+        // Check the grid status of the current candidate point
+        p_new_status = grid_check(p_cand);
+        if (p_new_status == MAP_STATUS::OBSTACLE)
             break;
-        
-        lambda += step;
-        p_new.first = std::make_shared<geometry_msgs::msg::Point>(p_cand);
-        // if we had an unknown point on the line we consider new point a frontier by deafult
-        p_new.second = (p_new.second == MAP_STATUS::UNKNOWN)? p_new.second : p_new_status;
 
-        p_cand.x = (1-lambda)*p_nearest.x + lambda*p_rand.x;
-        p_cand.y = (1-lambda)*p_nearest.y + lambda*p_rand.y;
-    }
+        p_new.first = std::make_shared<geometry_msgs::msg::Point>(p_cand);
+        p_new.second = (p_new.second == MAP_STATUS::UNKNOWN) ? p_new.second : p_new_status;
+
+        // If we've reached the target point, stop
+        if (x0 == x1 && y0 == y1) 
+            break;
+
+        e2 = 2 * err;
+        if (e2 >= dy) {
+            err += dy;
+            x0 += sx;
+        }
+        if (e2 <= dx) {
+            err += dx;
+            y0 += sy;
+        }
+    } while (within_expansion_dist(p_nearest, p_cand));
 
     return p_new;
 }
@@ -187,6 +285,12 @@ std::pair<geometry_msgs::msg::Point::SharedPtr, GlobalFrontierDetector::MAP_STAT
 // discards a found frontier point if it is contained in a buffer (hash table)
 void GlobalFrontierDetector::detect_frontiers()
 {
+    if (this->reset_RRT_) {
+        if (RRT_reset())
+            this->reset_RRT_ = false;
+        else
+            return;
+    }
     // auto seed = std::chrono::steady_clock::now().time_since_epoch().count();
     std::random_device seed; // obtain a random number from hardware
 
@@ -207,7 +311,7 @@ void GlobalFrontierDetector::detect_frontiers()
     geometry_msgs::msg::Point p_rand;
     geometry_msgs::msg::Point p_nearest;
     geometry_msgs::msg::Point p_new;
-    while (rclcpp::ok())
+    while (!this->reset_RRT_ && rclcpp::ok())
     {
         i = gen_row();
         j = gen_col();
@@ -287,7 +391,10 @@ int main(int argc, char** argv)
 {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<GlobalFrontierDetector>();
-    rclcpp::spin(node);
+    // rclcpp::spin(node);
+    rclcpp::executors::MultiThreadedExecutor executor;
+    executor.add_node(node);
+    executor.spin();
 
     rclcpp::shutdown();
 
