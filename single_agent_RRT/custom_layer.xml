@@ -1,0 +1,5 @@
+<library path="nav2_custom_costmap_plugin_core">
+  <class name="nav2_custom_costmap_plugin::CustomLayer" type="nav2_custom_costmap_plugin::CustomLayer" base_class_type="nav2_costmap_2d::Layer">
+    <description>This is a plugin which resets the values of the costmap surrounding the robot's starting position.</description>
+  </class>
+</library>

@@ -17,7 +17,7 @@ def generate_launch_description():
         'headless', default_value='False', description='Launch simulation in headless mode')
     declare_world = DeclareLaunchArgument(
         'world', default_value=os.path.join(
-            get_package_share_directory('turtlebot3_gazebo'), 'worlds', 'turtlebot3_playground.world'), description='World file to load')
+            get_package_share_directory('turtlebot3_gazebo'), 'worlds', 'turtlebot3_dqn_stage4.world'), description='World file to load')
     declare_slam = DeclareLaunchArgument(
         'slam', default_value='True', description='Enable SLAM')
     declare_rviz_config_file = DeclareLaunchArgument(
@@ -46,23 +46,23 @@ def generate_launch_description():
         package="single_agent_rrt",
         executable="local_frontier_detector",
         name='local_frontier_detector',
-        # respawn=True,
+        respawn=True,
     )
     global_frontier_detector_node = Node(
         package="single_agent_rrt",
         executable="global_frontier_detector",
         name='global_frontier_detector',
-        # respawn=True,
+        respawn=True,
     )
     filter_node = Node(
         package="single_agent_rrt",
         executable="filter",
         name='filter',
-        # respawn=True,
+        respawn=True,
     )
     
     return LaunchDescription([
-        SetEnvironmentVariable(name='TURTLEBOT3_MODEL', value='waffle'),
+        SetEnvironmentVariable(name='TURTLEBOT3_MODEL', value='burger'),
         SetEnvironmentVariable(name='GAZEBO_MODEL_PATH', value='/opt/ros/humble/share/turtlebot3_gazebo/models'),
         declare_headless,
         declare_world,
@@ -70,6 +70,7 @@ def generate_launch_description():
         declare_rviz_config_file,
         tb3_simulation_launch,
         # rrt_exploration_node,
-        # local_frontier_detector_node,
-        # filter_node
+        filter_node,
+        local_frontier_detector_node,
+        global_frontier_detector_node
     ])

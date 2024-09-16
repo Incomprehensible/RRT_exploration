@@ -266,6 +266,7 @@ void Filter::cluster_frontiers(std::vector<geometry_msgs::msg::Point> points)
         visualize_frontiers(clusters);
 }
 
+// Method adapted from our team's assignment project: https://github.com/TannerGilbert/700.240-Mobile-Robot-Programming/tree/main/Assignment-2
 void Filter::visualize_frontiers(std::vector<FrontierCluster> frontiers)
 {
     visualization_msgs::msg::MarkerArray marker_vec;
