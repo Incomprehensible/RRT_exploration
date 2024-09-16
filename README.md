@@ -35,7 +35,7 @@ home~$ ros2 launch single_agent_rrt rrt_exploration.launch.py
 * Previous version of the code used nodes composition. I am planning on bringing it back for convenience.
 * An extra `frontier detection rate` observation block shall be added which tracks the frontier update rate. When the map is almost fully explored and frontier detection rate becomes slow enough to trigger a threshold the algorithm switches from building RRT to bruteforce search.
 * A special hash map tracking the already explored areas shall be added to filter out these areas in `filter` node.
-* Currently I added a custom Costmap2D layer which fixes a bug currently existing in Gazebo Classic simulation. If the bug is fixed for you or you use other versions just disable the layer in [nav2_params](config/nav2_params.yaml):
+* Currently I added a custom Costmap2D layer which fixes a bug currently existing in Gazebo Classic simulation. If the bug is fixed for you or you use other versions just disable the layer in [nav2_params](single_agent_RRT/config/nav2_params.yaml):
 ```yaml
 custom_layer:
         plugin: "nav2_custom_costmap_plugin::CustomLayer"
