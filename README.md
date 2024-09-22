@@ -21,7 +21,6 @@ home~$ colcon build && source install/setup.bash
 home~$ ros2 launch single_agent_rrt rrt_exploration.launch.py
 ```
 
-<img src="Pictures/1.png" width="100%">
 <img src="Pictures/2.png" width="100%">
 <img src="Pictures/3.png" width="100%">
 
