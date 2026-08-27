@@ -1,7 +1,7 @@
 # RRT_exploration
 
 Implementation of autonomous exploration based on RRT (Rapidly Exploring Trees) algorithm using ROS2 and [SLAM Toolbox by Nav2](https://docs.nav2.org/tutorials/docs/navigation2_with_slam.html) framework.
-Algorithm is heavily inspired by the [paper](https://ieeexplore.ieee.org/document/8202319) published on **IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)** in 2017.
+Algorithm is heavily inspired by the [paper](https://ieeexplore.ieee.org/document/8202319) by Umari et al. published on **IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)** in 2017.
 
 This project is just an addition to my Mobile Robot Programming experiments and shouldn't be used as a state-of-the-art exploration algorithm for the real system.
 
